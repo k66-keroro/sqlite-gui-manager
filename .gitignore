@@ -1,0 +1,11 @@
+# Large files and generated files
+test_import.db
+test_excel_import.db
+universal_test.db
+テキスト/GetPLMItmPlntInfo_P100.txt
+テキスト/MARA_DL.csv
+テキスト/ZP128_P100.txt
+テキスト/test外/MARA_DL.csv
+テキスト/test外/GetPLMItmPlntInfo_P100.txt
+テキスト/test外/ZP128_P100.txt
+__pycache__/
