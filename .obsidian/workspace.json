@@ -11,13 +11,74 @@
             "id": "0e3016f06db5ef65",
             "type": "leaf",
             "state": {
-              "type": "empty",
-              "state": {},
+              "type": "markdown",
+              "state": {
+                "file": "README.md",
+                "mode": "source",
+                "source": false
+              },
               "icon": "lucide-file",
-              "title": "新規タブ"
+              "title": "README"
+            }
+          },
+          {
+            "id": "4da2d6247897c43f",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "基本的なテーブル確認.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "基本的なテーブル確認"
+            }
+          },
+          {
+            "id": "b55de3ddab469f32",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "README.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "README"
+            }
+          },
+          {
+            "id": "e1fe8c9876d94d5e",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "無題のファイル.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "無題のファイル"
+            }
+          },
+          {
+            "id": "cdd4a39c59de431c",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "趣旨_20250818.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "趣旨_20250818"
             }
           }
-        ]
+        ],
+        "currentTab": 4
       }
     ],
     "direction": "vertical"
@@ -161,14 +222,27 @@
       "command-palette:コマンドパレットを開く": false
     }
   },
-  "active": "0e3016f06db5ef65",
+  "active": "cdd4a39c59de431c",
   "lastOpenFiles": [
-    "sqlite_cli.py",
+    "無題のファイル.md",
+    "趣旨_20250818.md",
     "README.md",
+    "universal_test.db-shm",
+    "universal_test.db-wal",
+    "universal_test.db-journal",
+    "test.db-shm",
+    "test.db-wal",
+    "test.db",
+    "gemini.md",
     "claude.md",
-    "sqlite-gui-manager/sqlite_cli.py",
+    "SQLite_GUI_Manager_Combined.py",
+    "commit_message.txt",
+    "check_encoding.py",
+    "csv_txt_config.json",
+    "基本的なテーブル確認.md",
+    "universal_excel_to_sqlite_データ型.md",
+    "universal_excel_to_sqlite_log.md",
     "sqlite-gui-manager/claude.md",
-    "sqlite-gui-manager/README.md",
-    "sqlite-gui-manager"
+    "sqlite-gui-manager/README.md"
   ]
 }

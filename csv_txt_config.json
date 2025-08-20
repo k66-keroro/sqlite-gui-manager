@@ -1,0 +1,62 @@
+{
+  "files": {
+    "MARA_DL.csv": {
+      "encoding": "utf-16",
+      "delimiter": ","
+    },
+    "KANSEI_JISSEKI.txt": {
+      "encoding": "CP932",
+      "integer_fields": [],
+      "real_to_text_fields": [],
+      "force_text_fields": []
+    },
+    "zs191.txt": {
+      "encoding": "CP932",
+      "delimiter": ",",
+      "date_fields": ["有効開始日","有効終了日"],
+      "integer_fields": [],
+      "real_to_text_fields": [],
+      "comma_cleanup_fields": ["得意先","エンドユーザ"],
+      "force_text_fields": []
+    },
+    "zs45.txt": {
+      "encoding": "CP932",
+      "date_fields": ["TecComp","請求日"],
+      "integer_fields": ["受注数量","請求済数量"],
+      "text_fields": ["販売伝票","明細","請求伝票","明細.1"],
+      "real_to_text_fields": [],
+      "force_text_fields": []
+    },
+    "zs65.txt": {
+      "encoding": "CP932",
+      "integer_fields": [],
+      "real_to_text_fields": [],
+      "force_text_fields": []
+    },
+    "zs65_sss.txt": {
+      "encoding": "CP932",
+      "integer_fields": [],
+      "real_to_text_fields": [],
+      "force_text_fields": []
+    },
+    "払出明細（大阪）_ZPR01201.txt": {
+      "encoding": "cp932",
+      "integer_fields": [],
+      "real_to_text_fields": [],
+      "date_fields": ["計画開始","計画終了","購買発注登録日","指定納期","回答納期","入庫日付"],
+      "comma_cleanup_fields": ["出庫保管場所","購買依頼","購買伝票","常備の購買発注","親ネットワーク番号"],
+      "force_text_fields": ["製造指図/ネットワーク","MRP管理者","親ネットワーク番号"]
+    },
+    "払出明細（滋賀）_ZPR01201.txt": {
+      "encoding": "cp932",
+      "integer_fields": [],
+      "real_to_text_fields": [],
+      "date_fields": ["計画開始","計画終了","購買発注登録日","指定納期","回答納期","入庫日付"],
+      "comma_cleanup_fields": ["出庫保管場所","購買依頼","購買伝票","常備の購買発注","親ネットワーク番号"],
+      "force_text_fields": ["製造指図/ネットワーク","MRP管理者","親ネットワーク番号"]
+    }
+  },
+  "data_cleanup": {
+    
+  }
+}
