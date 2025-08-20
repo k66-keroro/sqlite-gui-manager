@@ -54,6 +54,36 @@
       "date_fields": ["計画開始","計画終了","購買発注登録日","指定納期","回答納期","入庫日付"],
       "comma_cleanup_fields": ["出庫保管場所","購買依頼","購買伝票","常備の購買発注","親ネットワーク番号"],
       "force_text_fields": ["製造指図/ネットワーク","MRP管理者","親ネットワーク番号"]
+    },
+    "PP_DL_CSV_SEISAN_YOTEI.csv": {
+      "encoding": "utf-16"
+    },
+    "PP_DL_CSV_ZTBP110.csv": {
+      "encoding": "utf-16"
+    },
+    "zf26.csv": {
+      "encoding": "cp932",
+      "delimiter": "\t"
+    },
+    "ZS58MONTH.csv": {
+      "encoding": "cp932",
+      "delimiter": "\t"
+    },
+    "ZS61KDAY.csv": {
+      "encoding": "cp932",
+      "delimiter": "\t"
+    },
+    "zm37.txt": {
+      "encoding": "cp932",
+      "delimiter": "\t",
+      "engine": "python",
+      "quoting": 3 
+    },
+    "ZP128_P100.txt": {
+      "encoding": "cp932",
+      "delimiter": "\t",
+      "engine": "python",
+      "quoting": 3
     }
   },
   "data_cleanup": {

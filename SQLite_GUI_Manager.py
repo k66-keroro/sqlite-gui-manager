@@ -6,6 +6,127 @@ import os
 import json
 import subprocess
 from datetime import datetime
+from pathlib import Path
+
+class MissingDataCheckDialog(tk.Toplevel):
+    """格納漏れチェック用の設定を入力するダイアログ"""
+    def __init__(self, parent, tables, default_table, conn):
+        super().__init__(parent)
+        self.transient(parent)
+        self.title("格納漏れチェック設定")
+        self.parent = parent
+        self.conn = conn
+        self.result = None
+
+        # 変数
+        self.source_file_path = tk.StringVar()
+        self.table_name = tk.StringVar(value=default_table)
+        self.source_key_column = tk.StringVar()
+        self.db_key_column = tk.StringVar()
+
+        body = ttk.Frame(self, padding=20)
+        self.initial_focus = self.body(body, tables)
+        body.pack()
+
+        self.buttonbox()
+
+        self.grab_set()
+        self.protocol("WM_DELETE_WINDOW", self.cancel)
+        self.geometry(f"+{ (parent.winfo_rootx() + 50)}+{(parent.winfo_rooty() + 50)}")
+        self.initial_focus.focus_set()
+        self.wait_window(self)
+
+    def body(self, master, tables):
+        # 1. 元ファイル選択
+        ttk.Label(master, text="元ファイル (CSV/Excel):").grid(row=0, column=0, sticky=tk.W, pady=2)
+        ttk.Entry(master, textvariable=self.source_file_path, width=50).grid(row=0, column=1, pady=2)
+        ttk.Button(master, text="参照...", command=self.select_source_file).grid(row=0, column=2, padx=5)
+
+        # 2. 比較対象テーブル
+        ttk.Label(master, text="比較対象テーブル:").grid(row=1, column=0, sticky=tk.W, pady=2)
+        self.table_combo = ttk.Combobox(master, textvariable=self.table_name, values=tables, state='readonly', width=47)
+        self.table_combo.grid(row=1, column=1, pady=2)
+        self.table_combo.bind('<<ComboboxSelected>>', self.update_db_columns)
+
+        # 3. 元ファイルのキー列
+        ttk.Label(master, text="元ファイルのキー列:").grid(row=2, column=0, sticky=tk.W, pady=2)
+        self.source_col_combo = ttk.Combobox(master, textvariable=self.source_key_column, state='readonly', width=47)
+        self.source_col_combo.grid(row=2, column=1, pady=2)
+
+        # 4. DBテーブルのキー列
+        ttk.Label(master, text="DBテーブルのキー列:").grid(row=3, column=0, sticky=tk.W, pady=2)
+        self.db_col_combo = ttk.Combobox(master, textvariable=self.db_key_column, state='readonly', width=47)
+        self.db_col_combo.grid(row=3, column=1, pady=2)
+
+        self.update_db_columns() # 初期表示
+        return self.source_col_combo
+
+    def buttonbox(self):
+        box = ttk.Frame(self)
+        ttk.Button(box, text="実行", command=self.apply, default=tk.ACTIVE).pack(side=tk.LEFT, padx=5, pady=5)
+        ttk.Button(box, text="キャンセル", command=self.cancel).pack(side=tk.LEFT, padx=5, pady=5)
+        self.bind("<Return>", self.apply)
+        self.bind("<Escape>", self.cancel)
+        box.pack()
+
+    def select_source_file(self):
+        path = filedialog.askopenfilename(filetypes=[
+            ("CSV/Excel files", "*.csv *.xlsx *.xls"),
+            ("All files", "*.*")])
+        if path:
+            self.source_file_path.set(path)
+            self.update_source_columns()
+
+    def update_source_columns(self):
+        path = self.source_file_path.get()
+        if not path:
+            return
+        try:
+            if path.endswith('.csv'):
+                df = pd.read_csv(path, nrows=0) # ヘッダーのみ読み込み
+            else:
+                df = pd.read_excel(path, nrows=0)
+            self.source_col_combo['values'] = list(df.columns)
+            if df.columns.any():
+                self.source_key_column.set(df.columns[0])
+        except Exception as e:
+            messagebox.showerror("ファイル読み込みエラー", f"ファイルの列情報を読み込めませんでした。\n{e}", parent=self)
+
+    def update_db_columns(self, event=None):
+        table = self.table_name.get()
+        if not table or not self.conn:
+            return
+        try:
+            cur = self.conn.cursor()
+            cur.execute(f'PRAGMA table_info("{table}")')
+            columns = [row[1] for row in cur.fetchall()]
+            self.db_col_combo['values'] = columns
+            if columns:
+                self.db_key_column.set(columns[0])
+        except Exception as e:
+            messagebox.showerror("DBエラー", f"テーブルの列情報を読み込めませんでした。\n{e}", parent=self)
+
+    def apply(self, event=None):
+        source_file = self.source_file_path.get()
+        table = self.table_name.get()
+        source_key = self.source_key_column.get()
+        db_key = self.db_key_column.get()
+
+        if not all([source_file, table, source_key, db_key]):
+            messagebox.showwarning("入力エラー", "すべての項目を入力してください。", parent=self)
+            return
+
+        self.result = {
+            'source_file': source_file,
+            'table_name': table,
+            'source_key': source_key,
+            'db_key': db_key
+        }
+        self.cancel()
+
+    def cancel(self, event=None):
+        self.parent.focus_set()
+        self.destroy()
 
 class SQLiteGUIManager:
     """SQLite GUI Manager メインクラス"""
@@ -110,6 +231,10 @@ class SQLiteGUIManager:
                                   command=self.delete_table, style="Danger.TButton")
         delete_button.pack(fill=tk.X, pady=2)
 
+        truncate_button = ttk.Button(button_frame, text="[TRUNCATE] テーブルクリア", 
+                                   command=self.truncate_table, style="Danger.TButton")
+        truncate_button.pack(fill=tk.X, pady=2)
+
         reimport_button = ttk.Button(button_frame, text="[IMPORT] データ再インポート",
                                    command=self.reimport_table)
         reimport_button.pack(fill=tk.X, pady=2)
@@ -143,6 +268,39 @@ class SQLiteGUIManager:
         except sqlite3.Error as e:
             messagebox.showerror("エラー", f"テーブル '{table_to_delete}' の削除中にエラーが発生しました。\n{e}")
 
+    def truncate_table(self):
+        """選択中のテーブルのデータを全件削除する"""
+        table_to_truncate = self.table_var.get()
+        if not table_to_truncate:
+            messagebox.showwarning("テーブルクリア", "クリアするテーブルが選択されていません。")
+            return
+
+        if not messagebox.askyesno("テーブルクリアの確認", 
+                                   f"本当にテーブル '{table_to_truncate}' の全データを削除しますか？\nこの操作は元に戻せません。",
+                                   icon='warning'):
+            return
+
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute(f'DELETE FROM "{table_to_truncate}"')
+            self.conn.commit()
+            
+            # 削除後の件数を確認
+            cursor.execute(f'SELECT COUNT(*) FROM "{table_to_truncate}"')
+            count = cursor.fetchone()[0]
+
+            messagebox.showinfo("成功", f"テーブル '{table_to_truncate}' のデータをクリアしました。(現在 {count}件)")
+            
+            # 表示を更新
+            self.show_all_data()
+
+            # VACUUMを実行してファイルサイズを縮小するか確認
+            if messagebox.askyesno("DB最適化", "データベースの最適化(VACUUM)を実行して、\nファイルサイズを縮小しますか？"):
+                self.vacuum_database()
+
+        except sqlite3.Error as e:
+            messagebox.showerror("エラー", f"テーブル '{table_to_truncate}' のクリア中にエラーが発生しました。\n{e}")
+
     def reimport_table(self):
         """選択中のテーブルのデータを再インポートする"""
         table_to_reimport = self.table_var.get()
@@ -150,106 +308,105 @@ class SQLiteGUIManager:
             messagebox.showwarning("再インポート", "再インポートするテーブルが選択されていません。")
             return
 
-        # インポート設定を検索
         config = self.find_import_config(table_to_reimport)
         if not config:
-            messagebox.showerror("エラー", f"テーブル '{table_to_reimport}' のインポート設定が見つかりません。\n`csv_txt_config.json` または `excel_config.json` を確認してください。")
+            messagebox.showerror("エラー", f"テーブル '{table_to_reimport}' のインポート設定またはソースファイルが見つかりません。")
             return
 
-        # 再インポートの確認
         if not messagebox.askyesno("再インポートの確認",
                                    f"テーブル '{table_to_reimport}' を再インポートしますか？\n既存のデータは削除されます。",
                                    icon='warning'):
             return
 
-        # テーブルを削除
-        try:
-            cursor = self.conn.cursor()
-            cursor.execute(f'DROP TABLE IF EXISTS "{table_to_reimport}"')
-            self.conn.commit()
-        except sqlite3.Error as e:
-            messagebox.showerror("エラー", f"テーブル削除中にエラーが発生しました。\n{e}")
-            return
-
-        # インポート処理を実行
-        self.run_importer_subprocess(config)
-
-        # UIを更新
-        self.connect_database()
-        messagebox.showinfo("成功", f"テーブル '{table_to_reimport}' の再インポートが完了しました。")
+        base_dir = os.path.dirname(__file__)
+        script_name = f"universal_{config['type']}_to_sqlite.py"
+        source_file_path = os.path.join(base_dir, 'テキスト', config['source_file'])
+        command = ['python', os.path.join(base_dir, script_name), source_file_path, self.db_path]
+        
+        self.run_importer_process(command, f"'{config['source_file']}'の再インポート")
 
     def find_import_config(self, table_name):
-        """指定されたテーブル名に対応するインポート設定を検索する"""
+        """指定されたテーブル名に対応するインポート設定を検索する。なければデフォルト設定を返す"""
         base_dir = os.path.dirname(__file__)
-        csv_txt_config_path = os.path.join(base_dir, 'csv_txt_config.json')
+        
+        # 1. 設定ファイルから検索
+        # excel_config.json のチェック
         excel_config_path = os.path.join(base_dir, 'excel_config.json')
-
-        # CSV/TXT設定ファイルの確認
-        if os.path.exists(csv_txt_config_path):
-            with open(csv_txt_config_path, 'r', encoding='utf-8') as f:
-                csv_txt_configs = json.load(f)
-            for config in csv_txt_configs:
-                if config.get('table_name') == table_name:
-                    config['type'] = 'csv_txt' # インポートタイプを特定するために追加
-                    return config
-
-        # Excel設定ファイルの確認
         if os.path.exists(excel_config_path):
             with open(excel_config_path, 'r', encoding='utf-8') as f:
-                excel_configs = json.load(f)
-            for config in excel_configs:
-                file_path = config.get('file_path')
-                if file_path:
-                    # テーブル名は「ファイル名_シート名」なので、前方一致で判定
-                    base_filename = os.path.splitext(os.path.basename(file_path))[0]
-                    if table_name.startswith(base_filename):
-                        config['type'] = 'excel' # インポートタイプを特定するために追加
-                        return config
+                excel_config = json.load(f)
+            if 'files' in excel_config and isinstance(excel_config.get('files'), dict):
+                for filename, config_data in excel_config['files'].items():
+                    if Path(filename).stem.lower() == table_name.lower():
+                        config_data['source_file'] = filename
+                        config_data['type'] = 'excel'
+                        return config_data
+
+        # csv_txt_config.json のチェック
+        csv_txt_config_path = os.path.join(base_dir, 'csv_txt_config.json')
+        if os.path.exists(csv_txt_config_path):
+            with open(csv_txt_config_path, 'r', encoding='utf-8') as f:
+                csv_txt_config = json.load(f)
+            if 'files' in csv_txt_config and isinstance(csv_txt_config.get('files'), dict):
+                for filename, config_data in csv_txt_config['files'].items():
+                    if Path(filename).stem.lower() == table_name.lower():
+                        config_data['source_file'] = filename
+                        config_data['type'] = 'csv_txt'
+                        return config_data
+
+        # 2. 設定ファイルになければ、テキストフォルダからファイル名で検索
+        text_dir = os.path.join(base_dir, 'テキスト')
+        if os.path.isdir(text_dir):
+            for filename in os.listdir(text_dir):
+                if Path(filename).stem.lower() == table_name.lower():
+                    ext = Path(filename).suffix.lower()
+                    file_type = ''
+                    if ext in ['.xlsx', '.xls']:
+                        file_type = 'excel'
+                    elif ext in ['.csv', '.txt', '.tsv']:
+                        file_type = 'csv_txt'
+                    
+                    if file_type:
+                        print(f"[INFO] 設定ファイルに定義がありません。ファイル名からデフォルト設定を生成: {filename}")
+                        return {
+                            'source_file': filename,
+                            'type': file_type
+                        }
 
         return None
 
-    def run_importer_subprocess(self, config):
-        """インポータースクリプトをサブプロセスで実行する"""
-        base_dir = os.path.dirname(__file__)
-        importer_type = config.get('type')
-        file_path = config.get('file_path')
-
-        if importer_type == 'csv_txt':
-            script_name = 'universal_csv_txt_to_sqlite.py'
-            # CSV/TXTの場合はバッチ処理ではないので、ファイルパスを直接指定
-            command = ['python', os.path.join(base_dir, script_name), file_path, self.db_path]
-        elif importer_type == 'excel':
-            script_name = 'universal_excel_to_sqlite.py'
-            command = ['python', os.path.join(base_dir, script_name), file_path, self.db_path]
-        else:
-            messagebox.showerror("エラー", "不明なインポートタイプです。")
-            return
-
+    def run_importer_process(self, command, process_title, show_completion_message=True):
+        """インポータースクリプトをサブプロセスで実行する共通メソッド"""
         try:
-            # サブプロセス実行
-            progress_dialog = self.show_progress_dialog("再インポート実行中...")
-            result = subprocess.run(command, capture_output=True, text=True, encoding='utf-8', check=True)
+            progress_dialog = self.show_progress_dialog(f"{process_title} 実行中...")
+            
+            startupinfo = None
+            if os.name == 'nt':
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            
+            result = subprocess.run(command, capture_output=True, text=True, encoding='utf-8', check=True, startupinfo=startupinfo)
+            
             progress_dialog.destroy()
 
-            # 成功した場合の処理
-            if result.returncode == 0:
-                self.status_var.set(f"[SUCCESS] テーブル '{config.get('table_name', os.path.basename(file_path))}' の再インポートが完了しました。")
-            else:
-                # 標準エラーに何かあれば表示
-                error_message = result.stderr.strip()
-                messagebox.showerror("インポートエラー", f"インポート処理中にエラーが発生しました。\n\n{error_message}")
+            if show_completion_message:
+                messagebox.showinfo(f"{process_title} 完了", f"{process_title}が正常に完了しました。")
+            
+            self.connect_database()
 
         except FileNotFoundError:
-            progress_dialog.destroy()
-            messagebox.showerror("エラー", f"スクリプト '{script_name}' が見つかりません。")
+            if 'progress_dialog' in locals() and progress_dialog.winfo_exists():
+                progress_dialog.destroy()
+            messagebox.showerror("エラー", f"スクリプトが見つかりません: {command[1]}")
         except subprocess.CalledProcessError as e:
-            progress_dialog.destroy()
-            # CalledProcessErrorから標準エラーを取得
+            if 'progress_dialog' in locals() and progress_dialog.winfo_exists():
+                progress_dialog.destroy()
             error_message = e.stderr.strip()
-            messagebox.showerror("インポートエラー", f"インポート処理が失敗しました (終了コード: {e.returncode})。\n\n{error_message}")
+            messagebox.showerror(f"{process_title} エラー", f"処理が失敗しました (終了コード: {e.returncode})。\n\n{error_message}")
         except Exception as e:
-            progress_dialog.destroy()
-            messagebox.showerror("予期せぬエラー", f"インポート中に予期せぬエラーが発生しました。\n{e}")
+            if 'progress_dialog' in locals() and progress_dialog.winfo_exists():
+                progress_dialog.destroy()
+            messagebox.showerror("予期せぬエラー", f"処理中に予期せぬエラーが発生しました。\n{e}")
 
     def show_progress_dialog(self, title):
         """進捗ダイアログを表示する"""
@@ -267,6 +424,25 @@ class SQLiteGUIManager:
         
         self.root.update_idletasks()
         return dialog
+
+    def show_text_dialog(self, title, message):
+        """スクロール可能なテキストメッセージを持つダイアログを表示する"""
+        dialog = tk.Toplevel(self.root)
+        dialog.title(title)
+        dialog.geometry("600x400")
+        
+        text_widget = tk.Text(dialog, wrap=tk.WORD, padx=10, pady=10)
+        text_widget.insert(tk.END, message)
+        text_widget.config(state=tk.DISABLED)
+        
+        scrollbar = ttk.Scrollbar(dialog, command=text_widget.yview)
+        text_widget['yscrollcommand'] = scrollbar.set
+        
+        text_widget.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        dialog.transient(self.root)
+        dialog.grab_set()
+        dialog.wait_window()
 
     def show_tree_menu(self, event):
         """Treeviewの右クリックメニューを表示する"""
@@ -297,8 +473,9 @@ class SQLiteGUIManager:
 
             # データ型を判定・集計
             type_counts = {'整数': 0, '浮動小数点数': 0, '日付': 0, '文字列': 0, '空値': 0}
+            misc_samples = [] # 文字列と判定されたもののサンプル
             for value in all_data:
-                if value is None or value == '':
+                if value is None or str(value).strip() == '':
                     type_counts['空値'] += 1
                 elif self.is_integer(value):
                     type_counts['整数'] += 1
@@ -308,6 +485,8 @@ class SQLiteGUIManager:
                     type_counts['日付'] += 1
                 else:
                     type_counts['文字列'] += 1
+                    if len(misc_samples) < 5: # 5件までサンプルを収集
+                        misc_samples.append(str(value))
             
             # 結果を表示
             total = len(all_data)
@@ -316,8 +495,11 @@ class SQLiteGUIManager:
                 if count > 0:
                     percentage = (count / total) * 100
                     result_message += f"- {data_type}: {count}件 ({percentage:.2f}%)\n"
+            
+            if misc_samples:
+                result_message += "\n[補足] 文字列と判定されたデータのサンプル：\n- " + "\n- ".join(misc_samples)
 
-            messagebox.showinfo("データ型チェック結果", result_message)
+            self.show_text_dialog(f"{column_name}列 データ型チェック結果", result_message)
 
         except Exception as e:
             messagebox.showerror("エラー", f"データ型チェック中にエラーが発生しました。\n{e}")
@@ -350,10 +532,44 @@ class SQLiteGUIManager:
         return False
 
     def check_for_missing_data(self):
-        """格納漏れチェックを実行する"""
+        """格納漏れチェック(行データ)を実行する"""
         dialog = MissingDataCheckDialog(self.root, self.tables, self.table_var.get(), self.conn)
         if dialog.result:
             self.run_missing_data_check(dialog.result)
+
+    def check_for_unimported_files(self):
+        """テキストフォルダ内のファイルとDBのテーブルを比較し、インポートされていないファイルを検出する"""
+        base_dir = os.path.dirname(__file__)
+        text_dir = os.path.join(base_dir, 'テキスト')
+
+        if not os.path.isdir(text_dir):
+            messagebox.showerror("エラー", f"テキストフォルダが見つかりません: {text_dir}")
+            return
+
+        try:
+            supported_extensions = ['.csv', '.txt', '.tsv', '.xlsx', '.xls']
+            source_files = [f for f in os.listdir(text_dir) if Path(f).suffix.lower() in supported_extensions]
+            
+            expected_tables = {Path(f).stem.lower() for f in source_files}
+            existing_tables = set(self.tables)
+            unimported_tables = expected_tables - existing_tables
+            
+            if not unimported_tables:
+                messagebox.showinfo("チェック完了", "すべてのファイルがインポートされているようです。")
+                return
+
+            unimported_files = []
+            for table_name in sorted(list(unimported_tables)):
+                for f in source_files:
+                    if Path(f).stem.lower() == table_name:
+                        unimported_files.append(f)
+                        break
+            
+            result_message = f"以下の {len(unimported_files)} 件のファイルは、まだインポートされていないようです：\n\n" + "\n".join(sorted(unimported_files))
+            self.show_text_dialog("未インポートのファイル一覧", result_message)
+
+        except Exception as e:
+            messagebox.showerror("エラー", f"未インポートのファイルのチェック中にエラーが発生しました。\n{e}")
 
     def run_missing_data_check(self, config):
         """ダイアログからの情報をもとに、格納漏れチェックを実行し、結果をCSVに出力する"""
@@ -521,15 +737,48 @@ class SQLiteGUIManager:
         data_menu.add_command(label="[RELOAD] DB再読込", command=self.connect_database)
         data_menu.add_command(label="[STATS] DB統計情報", command=self.show_db_stats)
         data_menu.add_separator()
-        data_menu.add_command(label="[VALIDATE] 格納漏れチェック", command=self.check_for_missing_data)
+        data_menu.add_command(label="[VALIDATE] 格納漏れチェック (行データ)", command=self.check_for_missing_data)
+        data_menu.add_command(label="[VALIDATE] 未インポートのファイルを確認", command=self.check_for_unimported_files)
+        data_menu.add_separator()
+        data_menu.add_command(label="[IMPORT] 全Excelを一括インポート", command=self.batch_import_excel)
+        data_menu.add_command(label="[IMPORT] 全CSV/TXTを一括インポート", command=self.batch_import_csv_txt)
+        data_menu.add_command(label="[IMPORT] 全ファイル(Excel,CSV,TXT)を一括インポート", command=self.batch_import_all)
         data_menu.add_separator()
         data_menu.add_command(label="[VACUUM] DB最適化", command=self.vacuum_database)
+        data_menu.add_command(label="[DELETE] 全テーブルを削除", command=self.delete_all_tables)
         
         # SQLメニュー
         sql_menu = tk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label="[SQL] SQL", menu=sql_menu)
         sql_menu.add_command(label="[SAMPLE] サンプルSQL", command=self.load_sample_sql)
         sql_menu.add_command(label="[FORMAT] SQL整形", command=self.format_sql_text)
+
+    def batch_import_excel(self, show_completion_message=True):
+        """全Excelファイルの一括インポートを開始する"""
+        if show_completion_message and not messagebox.askyesno("確認", "テキストフォルダ内のすべてのExcelファイルをインポートしますか？"):
+            return
+        base_dir = os.path.dirname(__file__)
+        command = ['python', os.path.join(base_dir, 'universal_excel_to_sqlite.py'), os.path.join(base_dir, 'テキスト'), self.db_path]
+        self.run_importer_process(command, "Excel一括インポート", show_completion_message)
+
+    def batch_import_csv_txt(self, show_completion_message=True):
+        """全CSV/TXTファイルの一括インポートを開始する"""
+        if show_completion_message and not messagebox.askyesno("確認", "テキストフォルダ内のすべてのCSV/TXTファイルをインポートしますか？"):
+            return
+        base_dir = os.path.dirname(__file__)
+        command = ['python', os.path.join(base_dir, 'universal_csv_txt_to_sqlite.py'), os.path.join(base_dir, 'テキスト'), self.db_path]
+        self.run_importer_process(command, "CSV/TXT一括インポート", show_completion_message)
+
+    def batch_import_all(self):
+        """すべてのファイルの一括インポートを開始する"""
+        if not messagebox.askyesno("確認", "テキストフォルダ内のすべてのファイルを一括インポートしますか？\n(Excel -> CSV/TXT の順で実行されます)"):
+            return
+        
+        self.batch_import_excel(show_completion_message=False)
+        self.batch_import_csv_txt(show_completion_message=False)
+        
+        messagebox.showinfo("一括インポート完了", "すべてのファイルの一括インポート処理が完了しました。")
+        self.connect_database()
 
     def connect_database(self):
         """データベース接続"""
@@ -554,6 +803,9 @@ class SQLiteGUIManager:
                 if self.tables:
                     self.table_combo.set(self.tables[0])
                     self.on_table_selected()
+                else:
+                    self.table_combo.set('') # テーブルがない場合はクリア
+                    self.display_data([], []) # データ表示もクリア
             
             # ステータス更新
             if hasattr(self, 'db_info_var'):
@@ -806,7 +1058,7 @@ class SQLiteGUIManager:
                     # 件数が多い場合の警告
                     if len(rows) >= 1000:
                         messagebox.showinfo("SQL実行結果", 
-                            f"結果: {len(rows)}件のデータを取得しました。\n"
+                            f"結果: {len(rows)}件のデータを取得しました。\n" 
                             "※ パフォーマンスの観点から、大量データの場合はLIMIT句の使用を推奨します。")
                 else:
                     messagebox.showinfo("SQL実行結果", "SQLは正常に実行されましたが、結果がありません。")
@@ -897,15 +1149,16 @@ class SQLiteGUIManager:
         """SQL実行結果をCSVエクスポート"""
         try:
             # 結果が存在するかチェック
-            if not self.sql_result_tree.get_children():
-                messagebox.showwarning("エクスポート", "エクスポートする結果がありません。")
+            if not self.tree.get_children():
+                messagebox.showwarning("エクスポート", "エクスポートするデータがありません。")
                 return
             
             # ファイル保存ダイアログ
             file_path = filedialog.asksaveasfilename(
-                title="SQL結果をエクスポート",
+                title="表示中データをエクスポート",
                 defaultextension=".csv",
-                filetypes=[("CSV files", "*.csv"), ("All files", "*.*")])
+                filetypes=[("CSV files", "*.csv"), ("All files", "*.*m")]
+            )
             
             if not file_path:
                 return
@@ -916,16 +1169,16 @@ class SQLiteGUIManager:
                 writer = csv.writer(f)
                 
                 # ヘッダー行を書き出し
-                columns = self.sql_result_tree['columns']
+                columns = self.tree['columns']
                 writer.writerow(columns)
                 
                 # データ行を書き出し
-                for item in self.sql_result_tree.get_children():
-                    values = self.sql_result_tree.item(item)['values']
+                for item in self.tree.get_children():
+                    values = self.tree.item(item)['values']
                     writer.writerow(values)
             
             messagebox.showinfo("エクスポート完了", 
-                f"SQL結果を以下のファイルにエクスポートしました:\n{file_path}")
+                f"表示中のデータを以下のファイルにエクスポートしました:\n{file_path}")
             
             if hasattr(self, 'status_var'):
                 self.status_var.set("[EXPORT] SQL結果エクスポート完了")
@@ -964,7 +1217,36 @@ class SQLiteGUIManager:
         except Exception as e:
             messagebox.showerror("フォーマットエラー", f"SQL整形エラー:\n{e}")
 
-    # --- ここに未定義だったメソッドを追加 ---
+    def delete_all_tables(self):
+        """データベース内のすべてのテーブルを削除する"""
+        if not self.tables:
+            messagebox.showinfo("情報", "削除するテーブルがありません。")
+            return
+
+        msg = f"""データベース '{os.path.basename(self.db_path)}' 内のすべてのテーブル ({len(self.tables)}個) を削除します。
+
+この操作は元に戻せません。本当によろしいですか？"""
+        if not messagebox.askyesno("【警告】全テーブル削除", msg, icon='warning'):
+            return
+
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("PRAGMA foreign_keys = OFF;")
+            for table_name in self.tables:
+                cursor.execute(f'DROP TABLE IF EXISTS "{table_name}";')
+                print(f"[DELETE] テーブル '{table_name}' を削除しました。")
+            
+            cursor.execute("PRAGMA foreign_keys = ON;")
+            self.conn.commit()
+            
+            messagebox.showinfo("成功", "すべてのテーブルを削除しました。")
+            
+            self.connect_database()
+
+        except Exception as e:
+            self.conn.rollback()
+            messagebox.showerror("エラー", f"全テーブル削除中にエラーが発生しました。\n{e}")
+
     def create_new_database(self):
         path = filedialog.asksaveasfilename(defaultextension=".db", filetypes=[("SQLite DB", "*.db")])
         if path:
@@ -985,14 +1267,13 @@ class SQLiteGUIManager:
 
     def vacuum_database(self):
         try:
+            if not messagebox.askyesno("確認", "データベースの最適化(VACUUM)を実行しますか？"):
+                return
             self.conn.execute("VACUUM")
-            messagebox.showinfo("Vacuum", "Database vacuumed successfully.")
+            messagebox.showinfo("成功", "データベースの最適化が完了しました。")
+            self.connect_database()
         except Exception as e:
-            messagebox.showerror("Vacuum Error", str(e))
-
-    def drop_all_tables(self):
-        # 実装は省略
-        messagebox.showinfo("Drop All Tables", "This feature is not fully implemented yet.")
+            messagebox.showerror("Vacuum エラー", str(e))
 
     def generate_sample_queries(self):
         self.load_sample_sql()
@@ -1017,123 +1298,3 @@ if __name__ == "__main__":
     root = tk.Tk()
     app = SQLiteGUIManager(root)
     root.mainloop()
-
-class MissingDataCheckDialog(tk.Toplevel):
-    """格納漏れチェック用の設定を入力するダイアログ"""
-    def __init__(self, parent, tables, default_table, conn):
-        super().__init__(parent)
-        self.transient(parent)
-        self.title("格納漏れチェック設定")
-        self.parent = parent
-        self.conn = conn
-        self.result = None
-
-        # 変数
-        self.source_file_path = tk.StringVar()
-        self.table_name = tk.StringVar(value=default_table)
-        self.source_key_column = tk.StringVar()
-        self.db_key_column = tk.StringVar()
-
-        body = ttk.Frame(self, padding=20)
-        self.initial_focus = self.body(body, tables)
-        body.pack()
-
-        self.buttonbox()
-
-        self.grab_set()
-        self.protocol("WM_DELETE_WINDOW", self.cancel)
-        self.geometry(f"+{ (parent.winfo_rootx() + 50)}+{(parent.winfo_rooty() + 50)}")
-        self.initial_focus.focus_set()
-        self.wait_window(self)
-
-    def body(self, master, tables):
-        # 1. 元ファイル選択
-        ttk.Label(master, text="元ファイル (CSV/Excel):").grid(row=0, column=0, sticky=tk.W, pady=2)
-        ttk.Entry(master, textvariable=self.source_file_path, width=50).grid(row=0, column=1, pady=2)
-        ttk.Button(master, text="参照...", command=self.select_source_file).grid(row=0, column=2, padx=5)
-
-        # 2. 比較対象テーブル
-        ttk.Label(master, text="比較対象テーブル:").grid(row=1, column=0, sticky=tk.W, pady=2)
-        self.table_combo = ttk.Combobox(master, textvariable=self.table_name, values=tables, state='readonly', width=47)
-        self.table_combo.grid(row=1, column=1, pady=2)
-        self.table_combo.bind('<<ComboboxSelected>>', self.update_db_columns)
-
-        # 3. 元ファイルのキー列
-        ttk.Label(master, text="元ファイルのキー列:").grid(row=2, column=0, sticky=tk.W, pady=2)
-        self.source_col_combo = ttk.Combobox(master, textvariable=self.source_key_column, state='readonly', width=47)
-        self.source_col_combo.grid(row=2, column=1, pady=2)
-
-        # 4. DBテーブルのキー列
-        ttk.Label(master, text="DBテーブルのキー列:").grid(row=3, column=0, sticky=tk.W, pady=2)
-        self.db_col_combo = ttk.Combobox(master, textvariable=self.db_key_column, state='readonly', width=47)
-        self.db_col_combo.grid(row=3, column=1, pady=2)
-
-        self.update_db_columns() # 初期表示
-        return self.source_col_combo
-
-    def buttonbox(self):
-        box = ttk.Frame(self)
-        ttk.Button(box, text="実行", command=self.apply, default=tk.ACTIVE).pack(side=tk.LEFT, padx=5, pady=5)
-        ttk.Button(box, text="キャンセル", command=self.cancel).pack(side=tk.LEFT, padx=5, pady=5)
-        self.bind("<Return>", self.apply)
-        self.bind("<Escape>", self.cancel)
-        box.pack()
-
-    def select_source_file(self):
-        path = filedialog.askopenfilename(filetypes=[
-            ("CSV/Excel files", "*.csv *.xlsx *.xls"),
-            ("All files", "*.*")])
-        if path:
-            self.source_file_path.set(path)
-            self.update_source_columns()
-
-    def update_source_columns(self):
-        path = self.source_file_path.get()
-        if not path:
-            return
-        try:
-            if path.endswith('.csv'):
-                df = pd.read_csv(path, nrows=0) # ヘッダーのみ読み込み
-            else:
-                df = pd.read_excel(path, nrows=0)
-            self.source_col_combo['values'] = list(df.columns)
-            if df.columns.any():
-                self.source_key_column.set(df.columns[0])
-        except Exception as e:
-            messagebox.showerror("ファイル読み込みエラー", f"ファイルの列情報を読み込めませんでした。\n{e}", parent=self)
-
-    def update_db_columns(self, event=None):
-        table = self.table_name.get()
-        if not table or not self.conn:
-            return
-        try:
-            cur = self.conn.cursor()
-            cur.execute(f'PRAGMA table_info("{table}")')
-            columns = [row[1] for row in cur.fetchall()]
-            self.db_col_combo['values'] = columns
-            if columns:
-                self.db_key_column.set(columns[0])
-        except Exception as e:
-            messagebox.showerror("DBエラー", f"テーブルの列情報を読み込めませんでした。\n{e}", parent=self)
-
-    def apply(self, event=None):
-        source_file = self.source_file_path.get()
-        table = self.table_name.get()
-        source_key = self.source_key_column.get()
-        db_key = self.db_key_column.get()
-
-        if not all([source_file, table, source_key, db_key]):
-            messagebox.showwarning("入力エラー", "すべての項目を入力してください。", parent=self)
-            return
-
-        self.result = {
-            'source_file': source_file,
-            'table_name': table,
-            'source_key': source_key,
-            'db_key': db_key
-        }
-        self.cancel()
-
-    def cancel(self, event=None):
-        self.parent.focus_set()
-        self.destroy()
